@@ -1,6 +1,7 @@
 import './style.css';
 import * as THREE from 'three';
 import { Water } from 'three/examples/jsm/objects/Water.js';
+import { AudioManager } from './audio.js';
 
 window.onerror = function(message, source, lineno, colno, error) {
   const errDiv = document.createElement('div');
@@ -17,7 +18,7 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 // Configuration
 const CONFIG = {
-  shipSpeed: 0.1, // Reduced speed for easier control
+  shipSpeed: 0.1, // Reduced speed
   rudderSensitivity: 0.005,
   rockingAmplitude: 0.05,
   rockingSpeed: 0.5,
@@ -25,10 +26,9 @@ const CONFIG = {
 
 // Scene Setup
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // Fallback sky color
+scene.background = new THREE.Color(0x87CEEB); 
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
-// Camera will be attached to ship later, initially set here
 camera.position.set(0, 5, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -39,7 +39,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.getElementById('game-container').appendChild(renderer.domElement);
 
 // Lighting
-const ambientLight = new THREE.AmbientLight(0xffdec0, 0.6); // Warmer ambient
+const ambientLight = new THREE.AmbientLight(0xffdec0, 0.6); 
 scene.add(ambientLight);
 
 const sunLight = new THREE.DirectionalLight(0xffaa33, 2.0);
@@ -47,8 +47,7 @@ sunLight.position.set(50, 30, -50);
 sunLight.castShadow = true;
 scene.add(sunLight);
 
-// Fog for depth and atmosphere
-scene.fog = new THREE.FogExp2(0xaaccff, 0.002); // Bluis fog
+scene.fog = new THREE.FogExp2(0xaaccff, 0.002); 
 
 // --- ASSETS ---
 const textureLoader = new THREE.TextureLoader();
@@ -59,11 +58,8 @@ textureLoader.load('/textures/skybox.png', function(texture) {
     texture.colorSpace = THREE.SRGBColorSpace;
     scene.background = texture;
     scene.environment = texture;
-}, undefined, function(err) {
-    console.error("Skybox failed to load, keeping default color", err);
 });
 
-// Textures - Asynchronous loading is fine, materials will update
 const woodTexture = textureLoader.load('/textures/wood.png');
 woodTexture.wrapS = woodTexture.wrapT = THREE.RepeatWrapping;
 woodTexture.repeat.set(2, 2);
@@ -77,8 +73,6 @@ const waterNormal = textureLoader.load('/textures/water_normal.png');
 waterNormal.wrapS = waterNormal.wrapT = THREE.RepeatWrapping;
 
 // --- OBJECTS ---
-
-// 1. Water
 const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
 const water = new Water(waterGeometry, {
   textureWidth: 512,
@@ -93,25 +87,20 @@ const water = new Water(waterGeometry, {
 water.rotation.x = -Math.PI / 2;
 scene.add(water);
 
-// 2. Ship Container (The whole ship that rocks)
-const shipWrapper = new THREE.Group(); // Handles movement (position/rotationY)
+// Ship
+const shipWrapper = new THREE.Group(); 
 scene.add(shipWrapper);
 
-const shipRockingGroup = new THREE.Group(); // Handles rocking (rotationX/Z)
+const shipRockingGroup = new THREE.Group();
 shipWrapper.add(shipRockingGroup);
-// Lift the ship so the deck is above water
-// Deck is at y=-0.25 relative to group. Top is 0.
-// Let's move shipRockingGroup up by 0.5 so deck is at 0.25 (clear of water)
 shipRockingGroup.position.y = 0.5;
 
-// Deck
 const deckGeo = new THREE.BoxGeometry(4, 0.5, 10);
 const deckMat = new THREE.MeshStandardMaterial({ map: woodTexture, roughness: 0.8 });
 const deck = new THREE.Mesh(deckGeo, deckMat);
 deck.position.y = -0.25;
 shipRockingGroup.add(deck);
 
-// Hull (Simple bottom)
 const hullGeo = new THREE.BoxGeometry(3.8, 1, 9);
 const hullMat = new THREE.MeshStandardMaterial({ color: 0x3d2e23 });
 const hull = new THREE.Mesh(hullGeo, hullMat);
@@ -137,7 +126,7 @@ railTopR.position.set(2, 0.8, 0);
 shipRockingGroup.add(railTopR);
 
 
-// Mast and Sails
+// Mast
 const mastGeo = new THREE.CylinderGeometry(0.15, 0.25, 8);
 const mast = new THREE.Mesh(mastGeo, deckMat);
 mast.position.set(0, 4, -2);
@@ -223,13 +212,109 @@ boyGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.7), new THRE
 boyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), new THREE.MeshStandardMaterial({ color: 0xe0ac69 })).translateY(0.85));
 boyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1a1a1a })).translateY(0.9));
 
+// --- AUDIO & VISUAL ENHANCEMENTS ---
+const audio = new AudioManager();
 
+class ParticleManager {
+    constructor(scene) {
+        this.scene = scene;
+        this.particles = [];
+        this.splashGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        this.splashMat = new THREE.MeshBasicMaterial({ color: 0xccffff });
+        this.sparkleGeo = new THREE.OctahedronGeometry(0.3);
+        this.sparkleMat = new THREE.MeshBasicMaterial({ color: 0xffd700 });
+    }
+    spawnSplash(pos, count = 10) {
+        for(let i=0; i<count; i++) {
+            const mesh = new THREE.Mesh(this.splashGeo, this.splashMat);
+            mesh.position.copy(pos);
+            mesh.position.y = 0; 
+            const vel = new THREE.Vector3((Math.random()-0.5)*0.4, Math.random()*0.5, (Math.random()-0.5)*0.4);
+            this.particles.push({ mesh, vel, type: 'splash', life: 1.0 });
+            this.scene.add(mesh);
+        }
+        audio.playTone('splash');
+    }
+    spawnSparkles(pos, count = 15) {
+        for(let i=0; i<count; i++) {
+            const mesh = new THREE.Mesh(this.sparkleGeo, this.sparkleMat);
+            mesh.position.copy(pos);
+            const vel = new THREE.Vector3((Math.random()-0.5)*0.5, Math.random()*0.5, (Math.random()-0.5)*0.5);
+            this.particles.push({ mesh, vel, type: 'sparkle', life: 1.5 });
+            this.scene.add(mesh);
+        }
+        audio.playTone('success');
+    }
+    update() {
+        for(let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.life -= 0.02;
+            p.mesh.position.add(p.vel);
+            p.vel.y -= 0.02; 
+            p.mesh.rotation.x += 0.1; p.mesh.rotation.z += 0.1;
+            p.mesh.scale.setScalar(Math.max(0, p.life));
+            if (p.life <= 0 || p.mesh.position.y < -1) {
+                this.scene.remove(p.mesh);
+                this.particles.splice(i, 1);
+            }
+        }
+    }
+}
+const particleManager = new ParticleManager(scene);
 
-// --- GAMEPLAY ELEMENTS: FISH & MISSIONS ---
+// Trails
+const trailGeo = new THREE.PlaneGeometry(2, 2);
+const trailMat = new THREE.MeshBasicMaterial({ 
+    color: 0xffffff, transparent: true, opacity: 0.4,
+    map: waterNormal // Reuse
+});
+const trails = [];
+let trailTimer = 0;
+function spawnTrailStep() {
+    const t = new THREE.Mesh(trailGeo, trailMat.clone());
+    t.rotation.x = -Math.PI / 2;
+    t.position.copy(shipWrapper.position);
+    t.position.y = 0.1;
+    t.position.add(new THREE.Vector3(0,0,2.5).applyAxisAngle(new THREE.Vector3(0,1,0), shipWrapper.rotation.y));
+    scene.add(t);
+    trails.push({ mesh: t, life: 1.0 });
+}
 
-// Fish Metadata
+// Seagulls
+const seagullGeo = new THREE.BufferGeometry();
+const seagullVerts = new Float32Array([-0.5, 0, 0.2, 0, 0, -0.2, 0.5, 0, 0.2, 0, -0.1, 0]);
+seagullGeo.setIndex([0,1,3, 1,2,3, 0,3,2]);
+seagullGeo.setAttribute('position', new THREE.BufferAttribute(seagullVerts, 3));
+const seagullMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+
+class Seagull {
+    constructor() {
+        this.mesh = new THREE.Mesh(seagullGeo, seagullMat);
+        this.mesh.position.set((Math.random()-0.5)*100, 15 + Math.random()*10, (Math.random()-0.5)*100);
+        this.angle = Math.random() * Math.PI * 2;
+        this.speed = 0.1 + Math.random() * 0.1;
+        scene.add(this.mesh);
+    }
+    update() {
+        const target = shipWrapper.position;
+        const dist = this.mesh.position.distanceTo(target);
+        if (dist > 50) {
+             this.mesh.lookAt(target);
+             this.mesh.translateZ(this.speed);
+        } else {
+             this.mesh.rotateY(0.01);
+             this.mesh.translateZ(this.speed);
+        }
+        this.mesh.rotation.z = Math.sin(time * 5 + this.angle) * 0.2;
+    }
+}
+const seagulls = [];
+for(let i=0; i<10; i++) seagulls.push(new Seagull());
+
+// --- GAMEPLAY ELEMENTS ---
+
 const FISH_TYPES = [
-    { name: 'Red', color: 0xff2222 }, // Brighter red
+    { name: 'Red', color: 0xff2222 },
     { name: 'Blue', color: 0x2222ff },
     { name: 'Green', color: 0x22ff22 },
     { name: 'Yellow', color: 0xffff00 },
@@ -241,43 +326,35 @@ class Fish {
         this.type = type;
         this.mesh = new THREE.Group();
         
-        // LARGE Fish Geometry (Easier to see)
-        // Body
+        // LARGE Fish Geometry
         const bodyGeo = new THREE.ConeGeometry(0.6, 1.5, 8); // 3x bigger
         bodyGeo.rotateX(Math.PI / 2);
         const mat = new THREE.MeshStandardMaterial({ 
-            color: type.color, 
-            roughness: 0.2, // Shinier
-            emissive: type.color,
-            emissiveIntensity: 0.4 // More glowing/visible
+            color: type.color, roughness: 0.2, emissive: type.color, emissiveIntensity: 0.4
         });
         const body = new THREE.Mesh(bodyGeo, mat);
         this.mesh.add(body);
         
-        // Tail
         const tailGeo = new THREE.ConeGeometry(0.4, 0.8, 4);
         tailGeo.rotateX(-Math.PI / 2);
         const tail = new THREE.Mesh(tailGeo, mat);
         tail.position.z = 0.9;
         this.mesh.add(tail);
 
-        // Randomize initial position
         this.reset();
         scene.add(this.mesh);
         
-        // Animation offsets
         this.randomOffset = Math.random() * 100;
-        this.speed = 0.02 + Math.random() * 0.03; // Slower fish
-        this.jumpPhase = Math.random() * Math.PI * 2;
+        this.speed = 0.02 + Math.random() * 0.03;
         this.jumping = false;
     }
 
     reset() {
         const angle = Math.random() * Math.PI * 2;
-        const dist = 60 + Math.random() * 140; // Spawn radius
+        const dist = 60 + Math.random() * 140;
         this.mesh.position.set(
             Math.cos(angle) * dist + shipWrapper.position.x,
-            -0.5, // Underwater depth
+            -0.5,
             Math.sin(angle) * dist + shipWrapper.position.z
         );
         this.mesh.rotation.y = Math.random() * Math.PI * 2;
@@ -287,68 +364,48 @@ class Fish {
 
     update() {
         if (!this.active) return;
-
-        // Swim changes
         const timeVal = time * 2 + this.randomOffset;
-        
-        // Wiggle
         this.mesh.children[1].rotation.y = Math.sin(timeVal * 10) * 0.3; // Tail wiggle
-
-        // Move forward
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
         this.mesh.position.add(forward.multiplyScalar(this.speed));
 
-        // Jump Logic
         if (!this.jumping && Math.random() < 0.005) { // More frequent jumps
             this.jumping = true;
             this.jumpTime = 0;
+            particleManager.spawnSplash(this.mesh.position, 5);
         }
 
         if (this.jumping) {
             this.jumpTime += 0.05;
-            // Parabola jump
             this.mesh.position.y = Math.sin(this.jumpTime) * 2 - 0.5;
-            this.mesh.rotation.x = -Math.sin(this.jumpTime) * 0.5; // Tilt up/down
-            
+            this.mesh.rotation.x = -Math.sin(this.jumpTime) * 0.5;
             if (this.jumpTime > Math.PI) {
                 this.jumping = false;
                 this.mesh.position.y = -0.1;
                 this.mesh.rotation.x = 0;
+                particleManager.spawnSplash(this.mesh.position, 5);
             }
         } else {
-             // Keep AT water surface (fins visible)
              this.mesh.position.y = -0.1 + Math.sin(timeVal) * 0.1;
         }
 
-        // Wrap around ship if too far
         if (this.mesh.position.distanceTo(shipWrapper.position) > 200) {
             this.reset();
         }
     }
 }
 
-// System
 const fishes = [];
-// Spawn 10 of each type
 FISH_TYPES.forEach(type => {
-    for(let i=0; i<8; i++) { // 40 fish total
-        fishes.push(new Fish(type));
-    }
+    for(let i=0; i<5; i++) fishes.push(new Fish(type));
 });
 
-
-// Mission Logic
-const MISSION_CONFIG = {
-    counts: [3, 4, 5], // Progression
-};
 let currentMission = {
-    type: FISH_TYPES[3], // Start with Yellow
+    type: FISH_TYPES[3],
     target: 3,
     current: 0
 };
 
-// UI Elements
-const uiMissionText = document.getElementById('mission-text');
 const uiMissionCount = document.getElementById('mission-count');
 const uiMissionColor = document.getElementById('mission-color');
 const uiMissionProgress = document.getElementById('mission-progress');
@@ -373,44 +430,39 @@ function showFeedback(text) {
 function checkCollisions() {
     fishes.forEach(fish => {
         if (!fish.active) return;
-
-        // Simple distance check
         if (fish.mesh.position.distanceTo(shipWrapper.position) < 3.5) {
-            // CATCH!
             fish.active = false;
             fish.mesh.visible = false;
             
-            // Check Mission
             if (fish.type.name === currentMission.type.name) {
                 currentMission.current++;
-                showFeedback(currentMission.current.toString()); // Show number!
-                
-                // Mission Complete?
+                showFeedback(currentMission.current.toString());
+                particleManager.spawnSparkles(fish.mesh.position);
+                audio.speak(currentMission.current.toString());
                 if (currentMission.current >= currentMission.target) {
                     showFeedback("GREAT JOB!");
-                    // New Mission after delay
-                    setTimeout(nextMission, 2000);
+                    audio.speak("Great Job! Mission Complete!");
+                    particleManager.spawnSparkles(shipWrapper.position, 50);
+                    setTimeout(nextMission, 3000);
                 }
             } else {
-                showFeedback("Oops!"); // Wrong fish
+                showFeedback("Oops!");
+                audio.playTone('fail');
+                shipRockingGroup.rotation.z += 0.2; 
             }
             updateMissionUI();
-
-            // Respawn fish later
             setTimeout(() => fish.reset(), 5000);
         }
     });
 }
 
 function nextMission() {
-    // Pick random different color
     let newType = currentMission.type;
     while(newType === currentMission.type) {
         newType = FISH_TYPES[Math.floor(Math.random() * FISH_TYPES.length)];
     }
     currentMission.type = newType;
     currentMission.current = 0;
-    // Keep target at 3 or increase? Let's keep specific simple logic for now
     currentMission.target = 3 + Math.floor(Math.random() * 3);
     
     updateMissionUI();
@@ -420,7 +472,6 @@ function nextMission() {
     container.classList.add('mission-complete');
 }
 
-
 // --- LOGIC LOOP ---
 let wheelAngle = 0;
 let shipHeading = 0;
@@ -428,8 +479,7 @@ let lastMouseX = 0;
 let isDragging = false;
 let time = 0;
 
-// Input
-const onDown = (x) => { isDragging = true; lastMouseX = x; };
+const onDown = (x) => { isDragging = true; lastMouseX = x; audio.resume(); }; // Resume audio on first interaction
 const onMove = (x) => {
     if (!isDragging) return;
     const delta = x - lastMouseX;
@@ -453,7 +503,6 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Attach camera to shipWrapper for "Third Person" feeling, but smoothed
 shipWrapper.add(camera);
 camera.position.set(0, 3, 5); 
 camera.rotation.set(-0.3, 0, 0);
@@ -464,28 +513,31 @@ function animate() {
     time += 0.01;
     water.material.uniforms['time'].value += 1.0 / 60.0;
     
-    // Physics
-    // 1. Turning
     shipHeading += wheelAngle * -0.01;
     shipWrapper.rotation.y = shipHeading;
-    
-    // 2. Movement (Always moving forward if sail is up)
     const forward = new THREE.Vector3(0, 0, -1);
     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), shipHeading);
     shipWrapper.position.add(forward.multiplyScalar(CONFIG.shipSpeed));
+
+    // Trail
+    trailTimer++;
+    if(trailTimer > 10) { spawnTrailStep(); trailTimer = 0; }
+    trails.forEach((t, i) => {
+        t.life -= 0.01;
+        t.mesh.material.opacity = t.life * 0.4;
+        t.mesh.scale.setScalar(1 + (1-t.life)); 
+        if(t.life <= 0) { scene.remove(t.mesh); trails[i] = null; }
+    });
+    for(let i=trails.length-1; i>=0; i--) if(!trails[i]) trails.splice(i, 1);
     
-    // 3. Wheel auto-center
-    if (!isDragging) {
-        wheelAngle *= 0.98;
-        wheelGroup.rotation.z = -wheelAngle;
-    }
+    if (!isDragging) { wheelAngle *= 0.98; wheelGroup.rotation.z = -wheelAngle; }
     
-    // 4. Rocking
     shipRockingGroup.rotation.x = Math.sin(time) * 0.03;
-    shipRockingGroup.rotation.z = Math.sin(time * 0.7) * 0.04 + (wheelAngle * 0.1); // Lean into turn
+    shipRockingGroup.rotation.z = Math.sin(time * 0.7) * 0.04 + (wheelAngle * 0.1); 
     
-    // Fish Updates
     fishes.forEach(f => f.update());
+    seagulls.forEach(s => s.update());
+    particleManager.update();
     checkCollisions();
 
     renderer.render(scene, camera);
