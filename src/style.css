@@ -1,12 +1,7 @@
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Outfit', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -15,48 +10,106 @@
 
 body {
   margin: 0;
-  padding: 0;
-  width: 100vw;
-  height: 100vh;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
   overflow: hidden;
-  background: #000;
+  background-color: #000;
 }
 
 #game-container {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+  z-index: 1;
+}
+
+#game-ui {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none; /* Let clicks pass through to game */
 }
 
 #instructions {
   position: absolute;
-  bottom: 30px;
+  top: 20px;
+  left: 20px;
+  color: white;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  z-index: 20;
+  pointer-events: none;
+}
+#instructions h1 { margin: 0; font-size: 2rem; color: #ffeb3b; }
+#score { font-size: 1.5rem; font-weight: bold; }
+
+/* Mission UI */
+#mission-container {
+  position: absolute;
+  top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 15px 30px;
+  border-radius: 30px;
+  border: 3px solid #fff;
+  color: white;
   text-align: center;
-  pointer-events: none;
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-  font-family: 'Cinzel', serif;
+  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
-h1 {
-  font-size: 2rem;
-  margin: 0 0 0.5rem 0;
-  letter-spacing: 0.1em;
-  color: #fbbf24;
-}
-
-p {
-  font-size: 1rem;
-  margin: 0;
-  opacity: 0.8;
-}
-
-#score {
-  font-size: 2.5rem;
+#mission-text {
+  font-size: 1.8rem;
   font-weight: bold;
-  opacity: 1;
-  margin-top: 10px;
-  color: #fbbf24;
-  /* Match title color */
+  margin-bottom: 5px;
+}
+
+#mission-color {
+  text-transform: capitalize;
+  font-weight: 900;
+  color: #FFD700; /* Default, will be overridden by JS */
+  text-shadow: 1px 1px 0 #000;
+}
+
+#mission-progress {
+  font-size: 1.4rem;
+  color: #eee;
+}
+
+/* Feedback (Big Numbers) */
+.feedback-item {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8rem;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 4px 4px 0px rgba(0,0,0,0.5);
+  animation: popAndFloat 1.5s forwards ease-out;
+  pointer-events: none;
+}
+
+@keyframes popAndFloat {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  20% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  40% { transform: translate(-50%, -50%) scale(1.0); }
+  100% { transform: translate(-50%, -150%); opacity: 0; }
+}
+
+.mission-complete {
+  animation: pulseSuccess 0.5s 3 alternate;
+}
+
+@keyframes pulseSuccess {
+  from { transform: translateX(-50%) scale(1); }
+  to { transform: translateX(-50%) scale(1.1); box-shadow: 0 0 30px #ffff00; }
 }

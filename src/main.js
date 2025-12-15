@@ -17,7 +17,7 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 // Configuration
 const CONFIG = {
-  shipSpeed: 0.2, // Increased speed
+  shipSpeed: 0.1, // Reduced speed for easier control
   rudderSensitivity: 0.005,
   rockingAmplitude: 0.05,
   rockingSpeed: 0.5,
@@ -224,34 +224,209 @@ boyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), new THREE.Me
 boyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1a1a1a })).translateY(0.9));
 
 
-// --- GAMEPLAY ELEMENTS ---
-// Targets/Crates to steer around
-const crates = [];
-const crateGeo = new THREE.BoxGeometry(1, 1, 1);
-const crateMat = new THREE.MeshStandardMaterial({ map: woodTexture });
 
-function spawnCrates() {
-    for(let i=0; i<20; i++) {
-        const crate = new THREE.Mesh(crateGeo, crateMat);
-        crate.position.set(
-            (Math.random() - 0.5) * 500,
-            0, // Water level
-            (Math.random() - 0.5) * 500
+// --- GAMEPLAY ELEMENTS: FISH & MISSIONS ---
+
+// Fish Metadata
+const FISH_TYPES = [
+    { name: 'Red', color: 0xff2222 }, // Brighter red
+    { name: 'Blue', color: 0x2222ff },
+    { name: 'Green', color: 0x22ff22 },
+    { name: 'Yellow', color: 0xffff00 },
+    { name: 'Purple', color: 0xaa22ff }
+];
+
+class Fish {
+    constructor(type) {
+        this.type = type;
+        this.mesh = new THREE.Group();
+        
+        // LARGE Fish Geometry (Easier to see)
+        // Body
+        const bodyGeo = new THREE.ConeGeometry(0.6, 1.5, 8); // 3x bigger
+        bodyGeo.rotateX(Math.PI / 2);
+        const mat = new THREE.MeshStandardMaterial({ 
+            color: type.color, 
+            roughness: 0.2, // Shinier
+            emissive: type.color,
+            emissiveIntensity: 0.4 // More glowing/visible
+        });
+        const body = new THREE.Mesh(bodyGeo, mat);
+        this.mesh.add(body);
+        
+        // Tail
+        const tailGeo = new THREE.ConeGeometry(0.4, 0.8, 4);
+        tailGeo.rotateX(-Math.PI / 2);
+        const tail = new THREE.Mesh(tailGeo, mat);
+        tail.position.z = 0.9;
+        this.mesh.add(tail);
+
+        // Randomize initial position
+        this.reset();
+        scene.add(this.mesh);
+        
+        // Animation offsets
+        this.randomOffset = Math.random() * 100;
+        this.speed = 0.02 + Math.random() * 0.03; // Slower fish
+        this.jumpPhase = Math.random() * Math.PI * 2;
+        this.jumping = false;
+    }
+
+    reset() {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 60 + Math.random() * 140; // Spawn radius
+        this.mesh.position.set(
+            Math.cos(angle) * dist + shipWrapper.position.x,
+            -0.5, // Underwater depth
+            Math.sin(angle) * dist + shipWrapper.position.z
         );
-        scene.add(crate);
-        crates.push(crate);
+        this.mesh.rotation.y = Math.random() * Math.PI * 2;
+        this.active = true;
+        this.mesh.visible = true;
+    }
+
+    update() {
+        if (!this.active) return;
+
+        // Swim changes
+        const timeVal = time * 2 + this.randomOffset;
+        
+        // Wiggle
+        this.mesh.children[1].rotation.y = Math.sin(timeVal * 10) * 0.3; // Tail wiggle
+
+        // Move forward
+        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+        this.mesh.position.add(forward.multiplyScalar(this.speed));
+
+        // Jump Logic
+        if (!this.jumping && Math.random() < 0.005) { // More frequent jumps
+            this.jumping = true;
+            this.jumpTime = 0;
+        }
+
+        if (this.jumping) {
+            this.jumpTime += 0.05;
+            // Parabola jump
+            this.mesh.position.y = Math.sin(this.jumpTime) * 2 - 0.5;
+            this.mesh.rotation.x = -Math.sin(this.jumpTime) * 0.5; // Tilt up/down
+            
+            if (this.jumpTime > Math.PI) {
+                this.jumping = false;
+                this.mesh.position.y = -0.1;
+                this.mesh.rotation.x = 0;
+            }
+        } else {
+             // Keep AT water surface (fins visible)
+             this.mesh.position.y = -0.1 + Math.sin(timeVal) * 0.1;
+        }
+
+        // Wrap around ship if too far
+        if (this.mesh.position.distanceTo(shipWrapper.position) > 200) {
+            this.reset();
+        }
     }
 }
-spawnCrates();
 
-// --- LOGIC ---
+// System
+const fishes = [];
+// Spawn 10 of each type
+FISH_TYPES.forEach(type => {
+    for(let i=0; i<8; i++) { // 40 fish total
+        fishes.push(new Fish(type));
+    }
+});
+
+
+// Mission Logic
+const MISSION_CONFIG = {
+    counts: [3, 4, 5], // Progression
+};
+let currentMission = {
+    type: FISH_TYPES[3], // Start with Yellow
+    target: 3,
+    current: 0
+};
+
+// UI Elements
+const uiMissionText = document.getElementById('mission-text');
+const uiMissionCount = document.getElementById('mission-count');
+const uiMissionColor = document.getElementById('mission-color');
+const uiMissionProgress = document.getElementById('mission-progress');
+const uiFeedbackParams = document.getElementById('feedback-container');
+
+function updateMissionUI() {
+    uiMissionCount.innerText = currentMission.target;
+    uiMissionColor.innerText = currentMission.type.name;
+    uiMissionColor.style.color = '#' + currentMission.type.color.toString(16).padStart(6, '0');
+    uiMissionProgress.innerText = `${currentMission.current}/${currentMission.target}`;
+}
+updateMissionUI();
+
+function showFeedback(text) {
+    const el = document.createElement('div');
+    el.className = 'feedback-item';
+    el.innerText = text;
+    uiFeedbackParams.appendChild(el);
+    setTimeout(() => el.remove(), 1500);
+}
+
+function checkCollisions() {
+    fishes.forEach(fish => {
+        if (!fish.active) return;
+
+        // Simple distance check
+        if (fish.mesh.position.distanceTo(shipWrapper.position) < 3.5) {
+            // CATCH!
+            fish.active = false;
+            fish.mesh.visible = false;
+            
+            // Check Mission
+            if (fish.type.name === currentMission.type.name) {
+                currentMission.current++;
+                showFeedback(currentMission.current.toString()); // Show number!
+                
+                // Mission Complete?
+                if (currentMission.current >= currentMission.target) {
+                    showFeedback("GREAT JOB!");
+                    // New Mission after delay
+                    setTimeout(nextMission, 2000);
+                }
+            } else {
+                showFeedback("Oops!"); // Wrong fish
+            }
+            updateMissionUI();
+
+            // Respawn fish later
+            setTimeout(() => fish.reset(), 5000);
+        }
+    });
+}
+
+function nextMission() {
+    // Pick random different color
+    let newType = currentMission.type;
+    while(newType === currentMission.type) {
+        newType = FISH_TYPES[Math.floor(Math.random() * FISH_TYPES.length)];
+    }
+    currentMission.type = newType;
+    currentMission.current = 0;
+    // Keep target at 3 or increase? Let's keep specific simple logic for now
+    currentMission.target = 3 + Math.floor(Math.random() * 3);
+    
+    updateMissionUI();
+    const container = document.getElementById('mission-container');
+    container.classList.remove('mission-complete');
+    void container.offsetWidth; // trigger reflow
+    container.classList.add('mission-complete');
+}
+
+
+// --- LOGIC LOOP ---
 let wheelAngle = 0;
 let shipHeading = 0;
 let lastMouseX = 0;
 let isDragging = false;
 let time = 0;
-let score = 0;
-const scoreEl = document.getElementById('score');
 
 // Input
 const onDown = (x) => { isDragging = true; lastMouseX = x; };
@@ -309,31 +484,9 @@ function animate() {
     shipRockingGroup.rotation.x = Math.sin(time) * 0.03;
     shipRockingGroup.rotation.z = Math.sin(time * 0.7) * 0.04 + (wheelAngle * 0.1); // Lean into turn
     
-    // Floating Crates (Simple "infinite" world)
-    crates.forEach(crate => {
-        crate.position.y = Math.sin(time * 2 + crate.position.x) * 0.2;
-        crate.rotation.x = Math.sin(time + crate.position.z) * 0.1;
-
-        if (crate.position.distanceTo(shipWrapper.position) > 300) {
-             crate.position.set(
-                shipWrapper.position.x + (Math.random() - 0.5) * 200,
-                0,
-                shipWrapper.position.z + (Math.random() - 0.5) * 200 - 100 
-            );
-        }
-        
-        // Collection
-        if (crate.position.distanceTo(shipWrapper.position) < 4) {
-             score += 10;
-             scoreEl.innerText = 'Score: ' + score;
-             // Respawn
-             crate.position.set(
-                shipWrapper.position.x + (Math.random() - 0.5) * 200,
-                0,
-                shipWrapper.position.z + (Math.random() - 0.5) * 200 - 150 
-            );
-        }
-    });
+    // Fish Updates
+    fishes.forEach(f => f.update());
+    checkCollisions();
 
     renderer.render(scene, camera);
 }
