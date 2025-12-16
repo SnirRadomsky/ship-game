@@ -17,12 +17,17 @@ window.onerror = function(message, source, lineno, colno, error) {
 };
 
 // Configuration
+let shipSpeed = 0.1; // Now mutable
 const CONFIG = {
-  shipSpeed: 0.1, // Reduced speed
   rudderSensitivity: 0.005,
   rockingAmplitude: 0.05,
   rockingSpeed: 0.5,
 };
+
+// ...
+
+// PowerUp Logic moved below scene initialization
+
 
 // State
 let wheelAngle = 0;
@@ -30,7 +35,8 @@ let shipHeading = 0;
 let lastMouseX = 0;
 let isDragging = false;
 let time = 0;
-let keys = { left: false, right: false };
+let keys = { left: false, right: false, up: false, down: false };
+
 
 // Scene Setup
 const scene = new THREE.Scene();
@@ -455,6 +461,194 @@ class Fish {
     }
 }
 
+// Dolphin Class
+class Dolphin {
+    constructor() {
+        this.mesh = new THREE.Group();
+        // Grey Body
+        const bodyGeo = new THREE.CapsuleGeometry(0.4, 1.2, 4, 8);
+        bodyGeo.rotateX(Math.PI / 2);
+        const mat = new THREE.MeshStandardMaterial({ color: 0xa0a0a0, roughness: 0.3 });
+        const body = new THREE.Mesh(bodyGeo, mat);
+        this.mesh.add(body);
+        
+        // Fin
+        const finGeo = new THREE.ConeGeometry(0.2, 0.5, 4);
+        const fin = new THREE.Mesh(finGeo, mat);
+        fin.position.set(0, 0.4, -0.2);
+        fin.rotation.x = -Math.PI / 4;
+        this.mesh.add(fin);
+        
+        // Tail
+        const tailGeo = new THREE.BoxGeometry(0.6, 0.1, 0.4);
+        const tail = new THREE.Mesh(tailGeo, mat);
+        tail.position.z = 0.8;
+        this.mesh.add(tail);
+
+        this.reset();
+        scene.add(this.mesh);
+        this.jumpOffset = Math.random() * 100;
+    }
+    
+    reset() {
+        // Spawn far out side
+        const side = Math.random() > 0.5 ? 1 : -1;
+        this.mesh.position.set(
+            shipWrapper.position.x + side * (30 + Math.random() * 20),
+            -2,
+            shipWrapper.position.z + (Math.random() - 0.5) * 50
+        );
+        this.mesh.rotation.y = shipHeading; // Swim with ship
+        this.active = true;
+    }
+    
+    update() {
+        // Parallel swim
+        const speed = CONFIG.shipSpeed * 1.2; // Slightly faster than ship
+        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+        this.mesh.position.add(forward.multiplyScalar(speed));
+        
+        // Jump cycle
+        const jumpCycle = (time * 0.5 + this.jumpOffset) % (Math.PI * 4);
+        if(jumpCycle < Math.PI) {
+            // Jumping
+            this.mesh.position.y = Math.sin(jumpCycle) * 3 - 1;
+            this.mesh.rotation.x = -Math.cos(jumpCycle) * 0.5;
+            if(Math.abs(this.mesh.position.y) < 0.2) particleManager.spawnSplash(this.mesh.position, 2);
+        } else {
+            this.mesh.position.y = -1;
+            this.mesh.rotation.x = 0;
+        }
+        
+        // Reset if passed
+        if(this.mesh.position.distanceTo(shipWrapper.position) > 100) {
+             const forwardDir = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), shipHeading);
+             const target = shipWrapper.position.clone().add(forwardDir.multiplyScalar(-60)); // Behind
+             this.mesh.position.copy(target);
+             this.mesh.position.x += (Math.random() - 0.5) * 60;
+             this.mesh.rotation.y = shipHeading;
+        }
+    }
+}
+const dolphins = [];
+for(let i=0; i<3; i++) dolphins.push(new Dolphin());
+
+// Bonus Fish (Golden)
+class BonusFish extends Fish {
+    constructor() {
+        super({ name: 'Gold', color: 0xffd700 });
+        this.mesh.children[0].material.emissiveIntensity = 0.8; // Shinier
+        this.mesh.children[0].material.metalness = 1.0;
+        this.isBonus = true;
+        this.speed = 0.08; // Fast!
+    }
+}
+const bonusFishes = [];
+for(let i=0; i<3; i++) bonusFishes.push(new BonusFish());
+
+// POWER UP LOGIC (Moved here to ensure scene exists)
+const POWERUP_TYPES = [
+    { name: 'Speed', color: 0x00ffff, icon: '⚡' },
+    { name: 'Magnet', color: 0xff00ff, icon: '🧲' }
+];
+
+let activeEffects = {
+    speedBoost: 0,
+    magnet: 0
+};
+
+class PowerUp {
+    constructor(type) {
+        this.type = type;
+        this.mesh = new THREE.Group();
+        
+        // Orb
+        const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
+        const orbMat = new THREE.MeshStandardMaterial({ 
+            color: type.color, 
+            emissive: type.color,
+            emissiveIntensity: 0.8,
+            transparent: true,
+            opacity: 0.8
+        });
+        const orb = new THREE.Mesh(orbGeo, orbMat);
+        this.mesh.add(orb);
+        
+        // Rings
+        const ringGeo = new THREE.TorusGeometry(0.8, 0.05, 8, 32);
+        const ring = new THREE.Mesh(ringGeo, orbMat);
+        ring.rotation.x = Math.PI / 2;
+        this.mesh.add(ring);
+
+        this.reset();
+        scene.add(this.mesh);
+        this.bobOffset = Math.random() * 100;
+    }
+    
+    reset() {
+        // Spawn relative to ship so player can find them!
+        const angle = -shipHeading + (Math.random() - 0.5) * Math.PI * 0.8; // In front cone
+        const dist = 50 + Math.random() * 150;
+        
+        this.mesh.position.set(
+             shipWrapper.position.x + Math.sin(angle) * dist,
+             0.5, 
+             shipWrapper.position.z + Math.cos(angle) * dist
+        );
+        
+        this.active = true;
+        this.mesh.visible = true;
+    }
+    
+    update() {
+        if(!this.active) return;
+        
+        // Animation
+        this.mesh.position.y = 0.5 + Math.sin(time * 3 + this.bobOffset) * 0.3;
+        this.mesh.rotation.y += 0.05;
+        this.mesh.children[1].rotation.x = Math.PI/2 + Math.sin(time) * 0.2;
+        
+        // Respawn if far
+        if(this.mesh.position.distanceTo(shipWrapper.position) > 250) {
+            this.reset();
+        }
+    }
+}
+const powerUps = [];
+POWERUP_TYPES.forEach(type => {
+    for(let i=0; i<5; i++) powerUps.push(new PowerUp(type));
+});
+
+function checkPowerUps() {
+    powerUps.forEach(p => {
+        if(!p.active) return;
+        if(p.mesh.position.distanceTo(shipWrapper.position) < 4) {
+             p.active = false;
+             p.mesh.visible = false;
+             
+             // Activate Effect
+             showFeedback(p.type.name + "!", true);
+             audio.playTone('success');
+             particleManager.spawnSparkles(shipWrapper.position, 40);
+             
+             if(p.type.name === 'Speed') {
+                 activeEffects.speedBoost = 600; // Frames (~10s)
+             } else if(p.type.name === 'Magnet') {
+                 activeEffects.magnet = 600;
+             }
+             
+             setTimeout(() => p.reset(), 15000);
+        }
+    });
+}
+
+function updateEffects() {
+    if(activeEffects.speedBoost > 0) activeEffects.speedBoost--;
+    if(activeEffects.magnet > 0) activeEffects.magnet--;
+}
+
+
+// Fish & Logic Update
 const fishes = [];
 FISH_TYPES.forEach(type => {
     for(let i=0; i<6; i++) fishes.push(new Fish(type));
@@ -463,8 +657,9 @@ FISH_TYPES.forEach(type => {
 let level = 1;
 let currentMission = {
     type: FISH_TYPES[Math.floor(Math.random()*FISH_TYPES.length)],
-    target: 2, // Start easy
-    current: 0
+    target: 2,
+    current: 0,
+    mode: 'count' // 'count' or 'math'
 };
 
 const uiMissionCount = document.getElementById('mission-count');
@@ -480,38 +675,43 @@ function updateLevelUI() {
 }
 
 function updateMissionUI() {
-    uiMissionCount.innerText = currentMission.target;
-    uiMissionColor.innerText = currentMission.type.name;
-    uiMissionColor.style.color = '#' + currentMission.type.color.toString(16).padStart(6, '0');
-    uiMissionProgress.innerText = `${currentMission.current}/${currentMission.target}`;
+    if(currentMission.mode === 'math') {
+        const remaining = currentMission.target - currentMission.current;
+        document.getElementById('mission-text').innerHTML = `Math Time! <br> You have ${currentMission.current}. needed ${currentMission.target}. <br> ${currentMission.current} + <span style='font-size:2rem;color:white'>?</span> = ${currentMission.target}`;
+        uiMissionProgress.style.display = 'none';
+        uiMissionColor.innerText = ''; 
+    } else {
+        document.getElementById('mission-text').innerHTML = `Catch <span id="mission-count">${currentMission.target}</span> <span id="mission-color">${currentMission.type.name}</span> Fish!`;
+        const c = document.getElementById('mission-color');
+        if(c) c.style.color = '#' + currentMission.type.color.toString(16).padStart(6, '0');
+        uiMissionProgress.style.display = 'block';
+        uiMissionProgress.innerText = `${currentMission.current}/${currentMission.target}`;
+    }
 }
-updateMissionUI();
 
-function showFeedback(text) {
+function showFeedback(text, isBig = false) {
     const el = document.createElement('div');
     el.className = 'feedback-item';
     el.innerText = text;
+    if(isBig) {
+        el.style.fontSize = '4rem';
+        el.style.color = '#fff700';
+        el.style.textShadow = '0 0 20px black';
+    }
     uiFeedbackParams.appendChild(el);
-    setTimeout(() => el.remove(), 1500);
+    setTimeout(() => el.remove(), 2000);
 }
 
 function checkObstacles() {
     obstacles.forEach(obs => {
          const dist = obs.mesh.position.distanceTo(shipWrapper.position);
          if (dist < 4) {
-             // BONK!
-             // Simple interaction: Push back?
-             // Or just visual penalty
-             if(Math.random() < 0.1) { // Debounce sound
+             if(Math.random() < 0.1) { 
                  audio.playTone('fail');
                  showFeedback("WATCH OUT!");
              }
-             
-             // Shake hard
              shipRockingGroup.rotation.x = (Math.random()-0.5) * 0.5;
              shipRockingGroup.rotation.z = (Math.random()-0.5) * 0.5;
-             
-             // Push back ship slightly to prevent sticking
              const bounce = shipWrapper.position.clone().sub(obs.mesh.position).normalize().multiplyScalar(0.5);
              shipWrapper.position.add(bounce);
          }
@@ -519,56 +719,82 @@ function checkObstacles() {
 }
 
 function checkCollisions() {
-    fishes.forEach(fish => {
-        if (!fish.active) return;
-        if (fish.mesh.position.distanceTo(shipWrapper.position) < 3.5) {
-            fish.active = false;
-            fish.mesh.visible = false;
-            
-            if (fish.type.name === currentMission.type.name) {
-                currentMission.current++;
-                showFeedback(currentMission.current.toString());
-                particleManager.spawnSparkles(fish.mesh.position);
-                audio.speak(currentMission.current.toString());
-                if (currentMission.current >= currentMission.target) {
-                    showFeedback("GREAT JOB!");
-                    audio.speak("Great Job! Mission Complete!");
-                    particleManager.spawnSparkles(shipWrapper.position, 50);
-                    // Level Up
-                    level++;
-                    updateLevelUI();
-                    
-                    setTimeout(nextMission, 3000);
-                }
-            } else {
-                showFeedback("Oops!");
-                audio.playTone('fail');
-                shipRockingGroup.rotation.z += 0.2; 
-            }
-            updateMissionUI();
-            setTimeout(() => fish.reset(), 5000);
+    // Regular Fish
+    fishes.forEach(fish => handleFishCollision(fish));
+    // Bonus Fish
+    bonusFishes.forEach(fish => handleFishCollision(fish));
+}
+
+function handleFishCollision(fish) {
+    if (!fish.active) return;
+    if (fish.mesh.position.distanceTo(shipWrapper.position) < 3.5) {
+        fish.active = false;
+        fish.mesh.visible = false;
+        
+        // Bonus Fish Logic
+        if(fish.isBonus) {
+             showFeedback("+5 POINTS!", true);
+             audio.playTone('success');
+             particleManager.spawnSparkles(shipWrapper.position, 30);
+             setTimeout(() => fish.reset(), 10000);
+             return;
         }
-    });
+
+        if (fish.type.name === currentMission.type.name || currentMission.mode === 'math') {
+            currentMission.current++;
+            
+            // Visual Counting
+            showFeedback(currentMission.current.toString(), true);
+            particleManager.spawnSparkles(fish.mesh.position);
+            audio.speak(currentMission.current.toString());
+            
+            if (currentMission.current >= currentMission.target) {
+                showFeedback("GREAT JOB!");
+                audio.speak("Great Job! Mission Complete!");
+                particleManager.spawnSparkles(shipWrapper.position, 50);
+                level++;
+                updateLevelUI();
+                setTimeout(nextMission, 3000);
+            }
+        } else {
+            showFeedback("Oops!");
+            audio.playTone('fail');
+            shipRockingGroup.rotation.z += 0.2; 
+        }
+        updateMissionUI();
+        setTimeout(() => fish.reset(), 5000);
+    }
 }
 
 function nextMission() {
-    let newType = currentMission.type;
-    while(newType === currentMission.type) {
-        newType = FISH_TYPES[Math.floor(Math.random() * FISH_TYPES.length)];
+    // 30% chance of Math Mission if level > 2
+    if(level > 2 && Math.random() < 0.3) {
+        currentMission.mode = 'math';
+        currentMission.current = Math.floor(Math.random() * 3) + 1; // Start with some logic
+        currentMission.target = currentMission.current + Math.floor(Math.random() * 3) + 1;
+        currentMission.type = { name: 'Any', color: 0xffffff }; // Any fish counts for math (simplification)
+    } else {
+        currentMission.mode = 'count';
+        let newType = currentMission.type;
+        while(newType === currentMission.type) {
+            newType = FISH_TYPES[Math.floor(Math.random() * FISH_TYPES.length)];
+        }
+        currentMission.type = newType;
+        currentMission.current = 0;
+        currentMission.target = Math.min(10, 2 + level); 
     }
-    currentMission.type = newType;
-    currentMission.current = 0;
-    // Difficulty scaling: Cap at 10 to keep it kid friendly
-    currentMission.target = Math.min(10, 2 + level); 
     
     updateMissionUI();
     const container = document.getElementById('mission-container');
     container.classList.remove('mission-complete');
-    void container.offsetWidth; // trigger reflow
+    void container.offsetWidth; 
     container.classList.add('mission-complete');
     
-    // Announce new mission
-    audio.speak(`Catch ${currentMission.target} ${currentMission.type.name} Fish`);
+    if(currentMission.mode === 'math') {
+        audio.speak(`Math Time! You have ${currentMission.current}. Catch more to reach ${currentMission.target}`);
+    } else {
+        audio.speak(`Catch ${currentMission.target} ${currentMission.type.name} Fish`);
+    }
 }
 
 const onDown = (x) => { isDragging = true; lastMouseX = x; audio.resume(); }; 
@@ -589,14 +815,21 @@ window.addEventListener('touchstart', (e) => onDown(e.touches[0].clientX), {pass
 window.addEventListener('touchmove', (e) => onMove(e.touches[0].clientX), {passive: false});
 window.addEventListener('touchend', onUp);
 
+// ...
+// ...
+
 window.addEventListener('keydown', (e) => {
     if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
     if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+    if(e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = true;
+    if(e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = true;
     audio.resume();
 });
 window.addEventListener('keyup', (e) => {
     if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
     if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+    if(e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = false;
+    if(e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = false;
 });
 
 window.addEventListener('resize', () => {
@@ -610,13 +843,33 @@ shipWrapper.add(camera);
 camera.position.set(0, 3, 5); 
 camera.rotation.set(-0.3, 0, 0);
 
+// ...
+const uiSpeed = document.getElementById('speedometer');
+
 function animate() {
     requestAnimationFrame(animate);
     
     // Keyboard Input
     if (keys.left) wheelAngle -= 0.05;
     if (keys.right) wheelAngle += 0.05;
-    // Clamp
+    
+    // Speed Control
+    if (keys.up) shipSpeed = Math.min(0.3, shipSpeed + 0.005);
+    else if (keys.down) shipSpeed = Math.max(0.02, shipSpeed - 0.005);
+    else {
+        // Auto-settle to cruising speed
+        if(shipSpeed > 0.1) shipSpeed -= 0.002;
+        if(shipSpeed < 0.1) shipSpeed += 0.002;
+    }
+    
+    // Apply Speed Boost
+    let currentSpeed = shipSpeed;
+    if(activeEffects.speedBoost > 0) currentSpeed *= 2.0;
+    
+    // Update Speedometer
+    if(uiSpeed) uiSpeed.innerText = Math.round(currentSpeed * 200) + ' קמ"ש';
+
+    // Clamp Wheel & Speed
     wheelAngle = Math.max(-2, Math.min(2, wheelAngle));
     wheelGroup.rotation.z = -wheelAngle;
     
@@ -627,11 +880,13 @@ function animate() {
     shipWrapper.rotation.y = shipHeading;
     const forward = new THREE.Vector3(0, 0, -1);
     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), shipHeading);
-    shipWrapper.position.add(forward.multiplyScalar(CONFIG.shipSpeed));
+    shipWrapper.position.add(forward.multiplyScalar(currentSpeed));
 
     // Trail
     trailTimer++;
-    if(trailTimer > 10) { spawnTrailStep(); trailTimer = 0; }
+    if(trailTimer > (activeEffects.speedBoost > 0 ? 5 : 10)) { // Faster trail if boosted
+        spawnTrailStep(); trailTimer = 0; 
+    }
     trails.forEach((t, i) => {
         t.life -= 0.01;
         t.mesh.material.opacity = t.life * 0.4;
@@ -649,11 +904,17 @@ function animate() {
     shipRockingGroup.rotation.z = Math.sin(time * 0.7) * 0.04 + (wheelAngle * 0.1); 
     
     fishes.forEach(f => f.update());
+    dolphins.forEach(d => d.update());
+    bonusFishes.forEach(f => f.update());
+    powerUps.forEach(p => p.update()); // Update PowerUps
     obstacles.forEach(o => o.update());
     seagulls.forEach(s => s.update());
     particleManager.update();
-    checkCollisions();
-    checkObstacles(); // New check
+    
+    checkCollisions(); // This logic now handles Magnet
+    checkObstacles();
+    checkPowerUps(); // New check
+    updateEffects(); // Tick timers
 
     renderer.render(scene, camera);
 }

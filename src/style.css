@@ -34,7 +34,8 @@ body {
   width: 100%;
   height: 100%;
   z-index: 10;
-  pointer-events: none; /* Let clicks pass through to game */
+  pointer-events: none;
+  /* Let clicks pass through to game */
 }
 
 #instructions {
@@ -42,13 +43,22 @@ body {
   top: 20px;
   left: 20px;
   color: white;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   z-index: 20;
   pointer-events: none;
 }
-#instructions h1 { margin: 0; font-size: 2rem; color: #ffeb3b; }
-#score { font-size: 1.5rem; font-weight: bold; }
+
+#instructions h1 {
+  margin: 0;
+  font-size: 2rem;
+  color: #ffeb3b;
+}
+
+#score {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
 
 /* Mission UI */
 #mission-container {
@@ -63,7 +73,7 @@ body {
   color: white;
   text-align: center;
   backdrop-filter: blur(5px);
-  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
 #mission-text {
@@ -75,7 +85,8 @@ body {
 #mission-color {
   text-transform: capitalize;
   font-weight: 900;
-  color: #FFD700; /* Default, will be overridden by JS */
+  color: #FFD700;
+  /* Default, will be overridden by JS */
   text-shadow: 1px 1px 0 #000;
 }
 
@@ -93,16 +104,30 @@ body {
   font-size: 8rem;
   font-weight: 900;
   color: #fff;
-  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 4px 4px 0px rgba(0,0,0,0.5);
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 4px 4px 0px rgba(0, 0, 0, 0.5);
   animation: popAndFloat 1.5s forwards ease-out;
   pointer-events: none;
 }
 
 @keyframes popAndFloat {
-  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
-  20% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-  40% { transform: translate(-50%, -50%) scale(1.0); }
-  100% { transform: translate(-50%, -150%); opacity: 0; }
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+
+  20% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 1;
+  }
+
+  40% {
+    transform: translate(-50%, -50%) scale(1.0);
+  }
+
+  100% {
+    transform: translate(-50%, -150%);
+    opacity: 0;
+  }
 }
 
 .mission-complete {
@@ -110,6 +135,28 @@ body {
 }
 
 @keyframes pulseSuccess {
-  from { transform: translateX(-50%) scale(1); }
-  to { transform: translateX(-50%) scale(1.1); box-shadow: 0 0 30px #ffff00; }
+  from {
+    transform: translateX(-50%) scale(1);
+  }
+
+  to {
+    transform: translateX(-50%) scale(1.1);
+    box-shadow: 0 0 30px #ffff00;
+  }
+}
+
+#speedometer {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  font-size: 3rem;
+  font-weight: 900;
+  color: white;
+  text-shadow: 2px 2px 4px black;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px 20px;
+  border-radius: 20px;
+  border: 2px solid white;
+  min-width: 150px;
+  text-align: center;
 }

@@ -2,7 +2,7 @@ export class AudioManager {
     constructor() {
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.3; // Prevent ear blasting
+        this.masterGain.gain.value = 0.1; // Much quieter (was 0.3)
         this.masterGain.connect(this.ctx.destination);
         this.synth = window.speechSynthesis;
         this.enabled = false;
@@ -69,7 +69,7 @@ export class AudioManager {
             noise.connect(filter);
             filter.connect(gain);
             
-            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.setValueAtTime(0.2, now); // Reduced splash volume (was 0.5)
             gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
             
             noise.start(now);
