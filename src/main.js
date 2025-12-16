@@ -24,6 +24,14 @@ const CONFIG = {
   rockingSpeed: 0.5,
 };
 
+// State
+let wheelAngle = 0;
+let shipHeading = 0;
+let lastMouseX = 0;
+let isDragging = false;
+let time = 0;
+let keys = { left: false, right: false };
+
 // Scene Setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
@@ -321,13 +329,64 @@ const FISH_TYPES = [
     { name: 'Purple', color: 0xaa22ff }
 ];
 
+class Obstacle {
+    constructor() {
+        this.mesh = new THREE.Group();
+        
+        // Buoy Geometry
+        const baseGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+        const baseMat = new THREE.MeshStandardMaterial({ color: 0xff4400, roughness: 0.5 });
+        const base = new THREE.Mesh(baseGeo, baseMat);
+        base.position.y = 0;
+        this.mesh.add(base);
+        
+        const topGeo = new THREE.SphereGeometry(0.5, 8, 8);
+        const topMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+        const top = new THREE.Mesh(topGeo, topMat);
+        top.position.y = 0.6;
+        this.mesh.add(top);
+
+        this.reset();
+        scene.add(this.mesh);
+    }
+    
+    reset() { 
+        this.mesh.position.set(
+            (Math.random() - 0.5) * 400,
+            -0.2, 
+            (Math.random() - 0.5) * 400
+        );
+        this.bobOffset = Math.random() * 100;
+    }
+    
+    update() {
+         // Bobbing
+         this.mesh.position.y = -0.2 + Math.sin(time * 2 + this.bobOffset) * 0.2;
+         
+         // Rotate slightly
+         this.mesh.rotation.z = Math.sin(time + this.bobOffset) * 0.1;
+         
+         // Respawn if too far
+         if(this.mesh.position.distanceTo(shipWrapper.position) > 250) {
+             this.mesh.position.set(
+                 shipWrapper.position.x + (Math.random() - 0.5) * 300,
+                 -0.2,
+                 shipWrapper.position.z + (Math.random() - 0.5) * 300
+             );
+         }
+    }
+}
+const obstacles = [];
+for(let i=0; i<10; i++) obstacles.push(new Obstacle());
+
 class Fish {
+// ... (Fish class remains same, just ensuring context match)
     constructor(type) {
         this.type = type;
         this.mesh = new THREE.Group();
         
         // LARGE Fish Geometry
-        const bodyGeo = new THREE.ConeGeometry(0.6, 1.5, 8); // 3x bigger
+        const bodyGeo = new THREE.ConeGeometry(0.6, 1.5, 8); 
         bodyGeo.rotateX(Math.PI / 2);
         const mat = new THREE.MeshStandardMaterial({ 
             color: type.color, roughness: 0.2, emissive: type.color, emissiveIntensity: 0.4
@@ -350,12 +409,13 @@ class Fish {
     }
 
     reset() {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 60 + Math.random() * 140;
+        // Spawn ahead of ship mostly
+        const angle = -shipHeading + (Math.random() - 0.5) * Math.PI; // In front cone
+        const dist = 40 + Math.random() * 100;
         this.mesh.position.set(
-            Math.cos(angle) * dist + shipWrapper.position.x,
+            shipWrapper.position.x + Math.sin(angle) * dist,
             -0.5,
-            Math.sin(angle) * dist + shipWrapper.position.z
+            shipWrapper.position.z + Math.cos(angle) * dist
         );
         this.mesh.rotation.y = Math.random() * Math.PI * 2;
         this.active = true;
@@ -369,7 +429,7 @@ class Fish {
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
         this.mesh.position.add(forward.multiplyScalar(this.speed));
 
-        if (!this.jumping && Math.random() < 0.005) { // More frequent jumps
+        if (!this.jumping && Math.random() < 0.005) { 
             this.jumping = true;
             this.jumpTime = 0;
             particleManager.spawnSplash(this.mesh.position, 5);
@@ -397,12 +457,13 @@ class Fish {
 
 const fishes = [];
 FISH_TYPES.forEach(type => {
-    for(let i=0; i<5; i++) fishes.push(new Fish(type));
+    for(let i=0; i<6; i++) fishes.push(new Fish(type));
 });
 
+let level = 1;
 let currentMission = {
-    type: FISH_TYPES[3],
-    target: 3,
+    type: FISH_TYPES[Math.floor(Math.random()*FISH_TYPES.length)],
+    target: 2, // Start easy
     current: 0
 };
 
@@ -410,6 +471,13 @@ const uiMissionCount = document.getElementById('mission-count');
 const uiMissionColor = document.getElementById('mission-color');
 const uiMissionProgress = document.getElementById('mission-progress');
 const uiFeedbackParams = document.getElementById('feedback-container');
+
+// ... (Mission logic)
+const uiLevel = document.getElementById('level-indicator');
+
+function updateLevelUI() {
+    uiLevel.innerText = 'Level: ' + level;
+}
 
 function updateMissionUI() {
     uiMissionCount.innerText = currentMission.target;
@@ -425,6 +493,29 @@ function showFeedback(text) {
     el.innerText = text;
     uiFeedbackParams.appendChild(el);
     setTimeout(() => el.remove(), 1500);
+}
+
+function checkObstacles() {
+    obstacles.forEach(obs => {
+         const dist = obs.mesh.position.distanceTo(shipWrapper.position);
+         if (dist < 4) {
+             // BONK!
+             // Simple interaction: Push back?
+             // Or just visual penalty
+             if(Math.random() < 0.1) { // Debounce sound
+                 audio.playTone('fail');
+                 showFeedback("WATCH OUT!");
+             }
+             
+             // Shake hard
+             shipRockingGroup.rotation.x = (Math.random()-0.5) * 0.5;
+             shipRockingGroup.rotation.z = (Math.random()-0.5) * 0.5;
+             
+             // Push back ship slightly to prevent sticking
+             const bounce = shipWrapper.position.clone().sub(obs.mesh.position).normalize().multiplyScalar(0.5);
+             shipWrapper.position.add(bounce);
+         }
+    });
 }
 
 function checkCollisions() {
@@ -443,6 +534,10 @@ function checkCollisions() {
                     showFeedback("GREAT JOB!");
                     audio.speak("Great Job! Mission Complete!");
                     particleManager.spawnSparkles(shipWrapper.position, 50);
+                    // Level Up
+                    level++;
+                    updateLevelUI();
+                    
                     setTimeout(nextMission, 3000);
                 }
             } else {
@@ -463,23 +558,20 @@ function nextMission() {
     }
     currentMission.type = newType;
     currentMission.current = 0;
-    currentMission.target = 3 + Math.floor(Math.random() * 3);
+    // Difficulty scaling: Cap at 10 to keep it kid friendly
+    currentMission.target = Math.min(10, 2 + level); 
     
     updateMissionUI();
     const container = document.getElementById('mission-container');
     container.classList.remove('mission-complete');
     void container.offsetWidth; // trigger reflow
     container.classList.add('mission-complete');
+    
+    // Announce new mission
+    audio.speak(`Catch ${currentMission.target} ${currentMission.type.name} Fish`);
 }
 
-// --- LOGIC LOOP ---
-let wheelAngle = 0;
-let shipHeading = 0;
-let lastMouseX = 0;
-let isDragging = false;
-let time = 0;
-
-const onDown = (x) => { isDragging = true; lastMouseX = x; audio.resume(); }; // Resume audio on first interaction
+const onDown = (x) => { isDragging = true; lastMouseX = x; audio.resume(); }; 
 const onMove = (x) => {
     if (!isDragging) return;
     const delta = x - lastMouseX;
@@ -497,18 +589,36 @@ window.addEventListener('touchstart', (e) => onDown(e.touches[0].clientX), {pass
 window.addEventListener('touchmove', (e) => onMove(e.touches[0].clientX), {passive: false});
 window.addEventListener('touchend', onUp);
 
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+    if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+    audio.resume();
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+    if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+});
+
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// IMPORTANT: Attach camera to ship so it follows!
 shipWrapper.add(camera);
 camera.position.set(0, 3, 5); 
 camera.rotation.set(-0.3, 0, 0);
 
 function animate() {
     requestAnimationFrame(animate);
+    
+    // Keyboard Input
+    if (keys.left) wheelAngle -= 0.05;
+    if (keys.right) wheelAngle += 0.05;
+    // Clamp
+    wheelAngle = Math.max(-2, Math.min(2, wheelAngle));
+    wheelGroup.rotation.z = -wheelAngle;
     
     time += 0.01;
     water.material.uniforms['time'].value += 1.0 / 60.0;
@@ -530,15 +640,20 @@ function animate() {
     });
     for(let i=trails.length-1; i>=0; i--) if(!trails[i]) trails.splice(i, 1);
     
-    if (!isDragging) { wheelAngle *= 0.98; wheelGroup.rotation.z = -wheelAngle; }
+    if (!isDragging && !keys.left && !keys.right) { 
+        wheelAngle *= 0.98; 
+        wheelGroup.rotation.z = -wheelAngle; 
+    }
     
     shipRockingGroup.rotation.x = Math.sin(time) * 0.03;
     shipRockingGroup.rotation.z = Math.sin(time * 0.7) * 0.04 + (wheelAngle * 0.1); 
     
     fishes.forEach(f => f.update());
+    obstacles.forEach(o => o.update());
     seagulls.forEach(s => s.update());
     particleManager.update();
     checkCollisions();
+    checkObstacles(); // New check
 
     renderer.render(scene, camera);
 }
